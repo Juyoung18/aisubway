@@ -203,7 +203,16 @@ app.post('/api/claude', async (req, res) => {
     });
 
     console.log(`[/api/claude] Anthropic 응답: ${response.status}`);
+  if (!response.ok) {
+  const errorText = await response.text();
+  console.error('[/api/claude] Anthropic 오류 내용:', errorText);
 
+  return res.status(response.status).json({
+    error: 'Anthropic API Error',
+    status: response.status,
+    detail: errorText
+  });
+}
     if (body.stream === true) {
       res.status(response.status);
       res.set({
