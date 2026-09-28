@@ -95,7 +95,22 @@ app.use('/api/subway', async (req, res, next) => {
   if (req.method !== 'GET') return next();
 
   try {
-    const subPath = '/api/subway' + req.url;
+    const [rawPath, rawQuery = ''] = req.url.split('?');
+
+const encodedPath = rawPath
+  .split('/')
+  .map((segment) => {
+    if (!segment) return '';
+    try {
+      return encodeURIComponent(decodeURIComponent(segment));
+    } catch (_) {
+      return encodeURIComponent(segment);
+    }
+  })
+  .join('/');
+
+const subPath =
+  '/api/subway' + encodedPath + (rawQuery ? `?${rawQuery}` : '');
     const result = await proxyRequest({
       protocol: 'http',
       hostname: 'swopenapi.seoul.go.kr',
@@ -158,85 +173,78 @@ app.get('/api/general/*path', async (req, res) => {
 // -----------------------------------------------------------------------
 // 3) /api/claude -> api.anthropic.com/v1/messages (stream 지원)
 // -----------------------------------------------------------------------
+// -----------------------------------------------------------------------
+// 3) /api/claude -> Anthropic Messages API
+// -----------------------------------------------------------------------
 app.post('/api/claude', async (req, res) => {
   if (!ANTHROPIC_API_KEY) {
     return res.status(500).json({
       error: 'Server Misconfiguration',
-      message: 'ANTHROPIC_API_KEY 환경변수가 설정되어 있지 않습니다.',
+      message: 'ANTHROPIC_API_KEY 환경변수가 설정되어 있지 않습니다.'
     });
   }
 
-  const isStream = req.body && req.body.stream === true;
-  const payload = JSON.stringify(req.body || {});
+  try {
+    const body = {
+      ...req.body,
+      model: 'claude-sonnet-4-6'
+    };
 
-  const options = {
-    hostname: 'api.anthropic.com',
-    port: 443,
-    path: '/v1/messages',
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'Content-Length': Buffer.byteLength(payload),
-    },
-  };
+    console.log('[/api/claude] Anthropic 요청 시작');
 
-  const upstreamReq = https.request(options, (upstreamRes) => {
-    if (isStream) {
-      // SSE 스트리밍 응답을 그대로 클라이언트로 중계
-      res.status(upstreamRes.statusCode);
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify(body)
+    });
+
+    console.log(`[/api/claude] Anthropic 응답: ${response.status}`);
+
+    if (body.stream === true) {
+      res.status(response.status);
       res.set({
-        'Content-Type': 'text/event-stream',
+        'Content-Type': response.headers.get('content-type') || 'text/event-stream',
         'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
+        'Connection': 'keep-alive'
       });
 
-      upstreamRes.on('data', (chunk) => {
-        res.write(chunk);
-      });
-      upstreamRes.on('end', () => {
-        res.end();
-      });
-      upstreamRes.on('error', (err) => {
-        console.error('[/api/claude] stream error:', err.message);
-        res.end();
-      });
-    } else {
-      // 일반 JSON 응답
-      const chunks = [];
-      upstreamRes.on('data', (chunk) => chunks.push(chunk));
-      upstreamRes.on('end', () => {
-        res.status(upstreamRes.statusCode);
-        res.set('Content-Type', upstreamRes.headers['content-type'] || 'application/json');
-        res.send(Buffer.concat(chunks));
-      });
+      if (!response.body) return res.end();
+
+      const reader = response.body.getReader();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+
+      return res.end();
     }
-  });
 
-  upstreamReq.on('error', (err) => {
-    console.error('[/api/claude] request error:', err.message);
-    if (!res.headersSent) {
-      res.status(502).json({
-        error: 'Bad Gateway',
-        message: 'Claude API(api.anthropic.com) 호출에 실패했습니다.',
-        detail: err.message,
-      });
-    } else {
-      res.end();
-    }
-  });
+    const text = await response.text();
 
-  // 클라이언트가 연결을 끊으면 업스트림 요청도 종료
-  req.on('close', () => {
-    upstreamReq.destroy();
-  });
+    res.status(response.status);
+    res.set(
+      'Content-Type',
+      response.headers.get('content-type') || 'application/json'
+    );
 
-  upstreamReq.write(payload);
-  upstreamReq.end();
+    return res.send(text);
+
+  } catch (err) {
+    console.error('[/api/claude] 실제 오류:', err);
+
+    return res.status(502).json({
+      error: 'Claude Proxy Error',
+      message: err.message,
+      cause: err.cause ? String(err.cause) : null
+    });
+  }
 });
-
-// -----------------------------------------------------------------------
 // 4) 헬스체크 / 진단 엔드포인트
 // -----------------------------------------------------------------------
 app.get('/health', (req, res) => {
@@ -257,7 +265,7 @@ app.get('/debug', async (req, res) => {
       protocol: 'http',
       hostname: 'swopenapi.seoul.go.kr',
       port: 80,
-      path: '/api/subway/sample/json/realtimeStationArrival/0/5/서울역',
+      path: '/api/subway/sample/json/realtimeStationArrival/0/5/%EC%84%9C%EC%9A%B8%EC%97%AD',
       method: 'GET',
       headers: { Accept: 'application/json, */*' },
     });
