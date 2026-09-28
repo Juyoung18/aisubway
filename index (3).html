@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>서울 지하철 실시간 도착정보</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171e2e;
+    --panel-2: #1e2740;
+    --border: #2a3450;
+    --text: #e8ecf5;
+    --text-dim: #8a93a8;
+    --accent: #4f8bff;
+    --red: #ff4d5e;
+    --yellow: #ffb020;
+    --green: #2ecc71;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 22px;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+  .search-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  input[type="text"] {
+    flex: 1;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-size: 15px;
+    outline: none;
+  }
+  input[type="text"]:focus {
+    border-color: var(--accent);
+  }
+  button {
+    padding: 12px 18px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover {
+    filter: brightness(1.1);
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .status-row .dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    margin-right: 6px;
+  }
+  .status-row .dot.err { background: var(--red); }
+  .banner {
+    display: none;
+    background: #3a2a1a;
+    border: 1px solid #6b4a1f;
+    color: #ffcf8a;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+  .banner.show { display: block; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  thead th {
+    text-align: left;
+    padding: 12px 14px;
+    background: var(--panel-2);
+    font-size: 12px;
+    color: var(--text-dim);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody td {
+    padding: 12px 14px;
+    font-size: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+  tbody tr:hover {
+    background: rgba(255,255,255,0.02);
+  }
+  .chip {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #101318;
+  }
+  .chip.red { background: var(--red); color: white; }
+  .chip.yellow { background: var(--yellow); }
+  .chip.green { background: var(--green); }
+  .line-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  .updated-at {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🚇 서울 지하철 실시간 도착정보</h1>
+  <p class="subtitle">역명을 입력하면 실시간 도착정보를 조회합니다. 30초마다 자동으로 갱신됩니다.</p>
+
+  <div class="search-bar">
+    <input type="text" id="stationInput" placeholder="예: 강남, 홍대입구, 서울역" value="강남" />
+    <button id="searchBtn">조회</button>
+  </div>
+
+  <div class="banner" id="fallbackBanner">
+    ⚠️ 실시간 API 호출에 실패하여 샘플 데이터를 표시하고 있습니다.
+  </div>
+
+  <div class="status-row">
+    <span><span class="dot" id="statusDot"></span><span id="statusText">대기 중</span></span>
+    <span class="updated-at" id="updatedAt"></span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>호선</th>
+        <th>방면</th>
+        <th>현재 위치</th>
+        <th>도착 예정</th>
+      </tr>
+    </thead>
+    <tbody id="resultBody">
+      <tr><td colspan="4" class="empty-state">역명을 입력하고 조회 버튼을 눌러주세요.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+(function () {
+  // -----------------------------------------------------------------
+  // API 설정
+  // -----------------------------------------------------------------
+  const API_KEY = "6f6a66657a6e616d383078597a456c";
+  const BASE_URL = "http://localhost:3000/api/subway";
+
+  const REFRESH_INTERVAL_MS = 30000;
+
+  let refreshTimer = null;
+  let currentStation = "";
+
+  const stationInput = document.getElementById("stationInput");
+  const searchBtn = document.getElementById("searchBtn");
+  const resultBody = document.getElementById("resultBody");
+  const statusDot = document.getElementById("statusDot");
+  const statusText = document.getElementById("statusText");
+  const updatedAt = document.getElementById("updatedAt");
+  const fallbackBanner = document.getElementById("fallbackBanner");
+
+  // -----------------------------------------------------------------
+  // 샘플(fallback) 데이터 — API 오류 시 대체 표시
+  // -----------------------------------------------------------------
+  function getSampleData(stationName) {
+    return [
+      {
+        subwayId: "1002",
+        lineName: "2호선",
+        trainLineNm: `${stationName}행 - 외선순환`,
+        arvlMsg2: "전역 도착",
+        arvlMsg3: "이전역 진입",
+        barvlDt: "45",
+      },
+      {
+        subwayId: "1002",
+        lineName: "2호선",
+        trainLineNm: `${stationName}행 - 내선순환`,
+        arvlMsg2: "2번째 전역 접근",
+        arvlMsg3: "2정거장 전",
+        barvlDt: "95",
+      },
+      {
+        subwayId: "1001",
+        lineName: "1호선",
+        trainLineNm: `${stationName}행 - 상행`,
+        arvlMsg2: "3분 후 도착",
+        arvlMsg3: "3정거장 전",
+        barvlDt: "180",
+      },
+    ];
+  }
+
+  // -----------------------------------------------------------------
+  // 상태 표시 업데이트
+  // -----------------------------------------------------------------
+  function setStatus(text, isError) {
+    statusText.textContent = text;
+    statusDot.classList.toggle("err", Boolean(isError));
+  }
+
+  function setUpdatedNow() {
+    const now = new Date();
+    updatedAt.textContent = `마지막 갱신: ${now.toLocaleTimeString("ko-KR")}`;
+  }
+
+  // -----------------------------------------------------------------
+  // 도착 시간(초)에 따른 색상 칩 클래스 계산
+  // -----------------------------------------------------------------
+  function getChipClass(seconds) {
+    if (seconds <= 60) return "red";
+    if (seconds <= 120) return "yellow";
+    return "green";
+  }
+
+  function formatArrivalLabel(seconds, fallbackMsg) {
+    if (Number.isFinite(seconds)) {
+      if (seconds <= 0) return "전역 도착";
+      const min = Math.floor(seconds / 60);
+      const sec = seconds % 60;
+      if (min > 0) return `${min}분 ${sec}초 후`;
+      return `${sec}초 후`;
+    }
+    return fallbackMsg || "정보 없음";
+  }
+
+  // -----------------------------------------------------------------
+  // 테이블 렌더링
+  // -----------------------------------------------------------------
+  function renderRows(rows) {
+    if (!rows || rows.length === 0) {
+      resultBody.innerHTML = `<tr><td colspan="4" class="empty-state">도착 예정 정보가 없습니다.</td></tr>`;
+      return;
+    }
+
+    resultBody.innerHTML = rows.map((row) => {
+      const seconds = parseInt(row.barvlDt, 10);
+      const chipClass = getChipClass(Number.isFinite(seconds) ? seconds : 9999);
+      const arrivalLabel = formatArrivalLabel(seconds, row.arvlMsg2);
+
+      return `
+        <tr>
+          <td><span class="line-badge">${escapeHtml(row.lineName || row.subwayId || "-")}</span></td>
+          <td>${escapeHtml(row.trainLineNm || "-")}</td>
+          <td>${escapeHtml(row.arvlMsg3 || row.arvlMsg2 || "-")}</td>
+          <td><span class="chip ${chipClass}">${escapeHtml(arrivalLabel)}</span></td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // -----------------------------------------------------------------
+  // API 호출
+  // -----------------------------------------------------------------
+  async function fetchArrivalInfo(stationName) {
+    const url = `${BASE_URL}/${API_KEY}/json/realtimeStationArrival/0/20/${encodeURIComponent(stationName)}`;
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    // 서울시 API 오류 응답 형식 체크 (RESULT.CODE)
+    if (data && data.RESULT && data.RESULT.CODE && data.RESULT.CODE !== "INFO-000") {
+      throw new Error(data.RESULT.MESSAGE || "API 오류");
+    }
+
+    const list = data && data.realtimeArrivalList;
+    if (!Array.isArray(list)) {
+      throw new Error("응답 형식이 올바르지 않습니다.");
+    }
+
+    return list;
+  }
+
+  async function loadStation(stationName) {
+    if (!stationName) return;
+    currentStation = stationName;
+
+    setStatus("조회 중...", false);
+    searchBtn.disabled = true;
+
+    try {
+      const list = await fetchArrivalInfo(stationName);
+      fallbackBanner.classList.remove("show");
+      renderRows(list);
+      setStatus("정상 연결됨", false);
+      setUpdatedNow();
+    } catch (err) {
+      console.error("[subway] fetch error:", err);
+      fallbackBanner.classList.add("show");
+      renderRows(getSampleData(stationName));
+      setStatus("API 오류 - 샘플 데이터 표시", true);
+      setUpdatedNow();
+    } finally {
+      searchBtn.disabled = false;
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // 30초 자동 갱신
+  // -----------------------------------------------------------------
+  function startAutoRefresh() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(() => {
+      if (currentStation) {
+        loadStation(currentStation);
+      }
+    }, REFRESH_INTERVAL_MS);
+  }
+
+  function stopAutoRefresh() {
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // 이벤트 바인딩
+  // -----------------------------------------------------------------
+  searchBtn.addEventListener("click", () => {
+    const stationName = stationInput.value.trim();
+    if (!stationName) {
+      stationInput.focus();
+      return;
+    }
+    loadStation(stationName);
+  });
+
+  stationInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      searchBtn.click();
+    }
+  });
+
+  // -----------------------------------------------------------------
+  // 초기 실행
+  // -----------------------------------------------------------------
+  loadStation(stationInput.value.trim());
+  startAutoRefresh();
+})();
+</script>
+</body>
+</html>

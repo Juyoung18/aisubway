@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>서울 지하철 실시간 도착정보</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" />
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171e2e;
+    --panel-2: #1e2740;
+    --border: #2a3450;
+    --text: #e8ecf5;
+    --text-dim: #8a93a8;
+    --accent: #4f8bff;
+    --red: #ff4d5e;
+    --yellow: #ffb020;
+    --green: #2ecc71;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 22px;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+  .search-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  input[type="text"] {
+    flex: 1;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-size: 15px;
+    outline: none;
+  }
+  input[type="text"]:focus {
+    border-color: var(--accent);
+  }
+  button {
+    padding: 12px 18px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover {
+    filter: brightness(1.1);
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .status-row .dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    margin-right: 6px;
+  }
+  .status-row .dot.err { background: var(--red); }
+  .banner {
+    display: none;
+    background: #3a2a1a;
+    border: 1px solid #6b4a1f;
+    color: #ffcf8a;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+  .banner.show { display: block; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  thead th {
+    text-align: left;
+    padding: 12px 14px;
+    background: var(--panel-2);
+    font-size: 12px;
+    color: var(--text-dim);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody td {
+    padding: 12px 14px;
+    font-size: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+  tbody tr:hover {
+    background: rgba(255,255,255,0.02);
+  }
+  .chip {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #101318;
+  }
+  .chip.red { background: var(--red); color: white; }
+  .chip.yellow { background: var(--yellow); }
+  .chip.green { background: var(--green); }
+  .line-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  .updated-at {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .map-panel { margin-top: 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .map-toolbar { padding: 12px; display:flex; flex-wrap:wrap; gap:8px; border-bottom:1px solid var(--border); }
+  .line-toggle { padding:7px 10px; border-radius:8px; background:var(--panel-2); border:1px solid var(--border); font-size:12px; }
+  .line-toggle.off { opacity:.35; }
+  #subwayMap { height:840px; width:100%; }
+  .leaflet-tile { filter: brightness(.38) saturate(.3) hue-rotate(195deg); }
+  .station-label { background:transparent; border:0; box-shadow:none; color:#fff; font-size:10px; font-weight:700; text-shadow:0 1px 3px #000,0 0 3px #000; white-space:nowrap; }
+  .autocomplete-wrap { position:relative; flex:1; }
+  #stationSuggestions { position:absolute; z-index:2000; top:100%; left:0; right:0; max-height:220px; overflow:auto; background:var(--panel); border:1px solid var(--border); border-radius:8px; display:none; }
+  .suggestion { padding:9px 12px; cursor:pointer; font-size:13px; }
+  .suggestion:hover { background:var(--panel-2); }
+
+  /* 교재 [화면 2-2]에 가까운 STEP 03 지도 표현 */
+  #subwayMap .maplibregl-canvas { filter: brightness(.58) saturate(.48) contrast(1.05); }
+  .leaflet-popup-content-wrapper {
+    background:#111b2d; color:#f8fafc; border:1px solid rgba(148,163,184,.18);
+    border-radius:12px; box-shadow:0 12px 35px rgba(0,0,0,.45);
+  }
+  .leaflet-popup-tip { background:#111b2d; }
+  .leaflet-popup-content { margin:14px 16px; text-align:center; min-width:150px; }
+  .leaflet-popup-close-button { color:#94a3b8 !important; }
+  .popup-station-name { font-size:15px; font-weight:800; margin-bottom:3px; }
+  .popup-line-name { color:#aab6ca; font-size:11px; margin-bottom:10px; }
+  .popup-arrival {
+    width:100%; padding:8px 10px; border-radius:7px; border:0;
+    background:#60bdf5; color:#07111f; font-weight:800; font-size:12px;
+  }
+
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🚇 서울 지하철 실시간 도착정보</h1>
+  <p class="subtitle">역명을 입력하면 실시간 도착정보를 조회합니다. 30초마다 자동으로 갱신됩니다.</p>
+
+  <div class="search-bar">
+    <div class="autocomplete-wrap"><input type="text" id="stationInput" placeholder="예: 강남, 홍대입구, 서울역" value="강남" /><div id="stationSuggestions"></div></div>
+    <button id="searchBtn">조회</button>
+  </div>
+
+  <div class="banner" id="fallbackBanner">
+    ⚠️ 실시간 API 호출에 실패하여 샘플 데이터를 표시하고 있습니다.
+  </div>
+
+  <div class="status-row">
+    <span><span class="dot" id="statusDot"></span><span id="statusText">대기 중</span></span>
+    <span class="updated-at" id="updatedAt"></span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>호선</th>
+        <th>방면</th>
+        <th>현재 위치</th>
+        <th>도착 예정</th>
+      </tr>
+    </thead>
+    <tbody id="resultBody">
+      <tr><td colspan="4" class="empty-state">역명을 입력하고 조회 버튼을 눌러주세요.</td></tr>
+    </tbody>
+  </table>
+  <div class="map-panel">
+    <div class="map-toolbar" id="lineToggles"></div>
+    <div id="subwayMap"></div>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
+<script>
+(function () {
+  // -----------------------------------------------------------------
+  // API 설정
+  // -----------------------------------------------------------------
+  const API_KEY = "6f6a66657a6e616d383078597a456c";
+  const BASE_URL = "http://localhost:3000/api/subway";
+
+  const REFRESH_INTERVAL_MS = 30000;
+
+  let refreshTimer = null;
+  let currentStation = "";
+
+  const stationInput = document.getElementById("stationInput");
+  const searchBtn = document.getElementById("searchBtn");
+  const resultBody = document.getElementById("resultBody");
+  const statusDot = document.getElementById("statusDot");
+  const statusText = document.getElementById("statusText");
+  const updatedAt = document.getElementById("updatedAt");
+  const fallbackBanner = document.getElementById("fallbackBanner");
+
+  // -----------------------------------------------------------------
+  // 샘플(fallback) 데이터 — API 오류 시 대체 표시
+  // -----------------------------------------------------------------
+  function getSampleData(stationName) {
+    return [
+      {
+        subwayId: "1002",
+        lineName: "2호선",
+        trainLineNm: `${stationName}행 - 외선순환`,
+        arvlMsg2: "전역 도착",
+        arvlMsg3: "이전역 진입",
+        barvlDt: "45",
+      },
+      {
+        subwayId: "1002",
+        lineName: "2호선",
+        trainLineNm: `${stationName}행 - 내선순환`,
+        arvlMsg2: "2번째 전역 접근",
+        arvlMsg3: "2정거장 전",
+        barvlDt: "95",
+      },
+      {
+        subwayId: "1001",
+        lineName: "1호선",
+        trainLineNm: `${stationName}행 - 상행`,
+        arvlMsg2: "3분 후 도착",
+        arvlMsg3: "3정거장 전",
+        barvlDt: "180",
+      },
+    ];
+  }
+
+  // -----------------------------------------------------------------
+  // 상태 표시 업데이트
+  // -----------------------------------------------------------------
+  function setStatus(text, isError) {
+    statusText.textContent = text;
+    statusDot.classList.toggle("err", Boolean(isError));
+  }
+
+  function setUpdatedNow() {
+    const now = new Date();
+    updatedAt.textContent = `마지막 갱신: ${now.toLocaleTimeString("ko-KR")}`;
+  }
+
+  // -----------------------------------------------------------------
+  // 도착 시간(초)에 따른 색상 칩 클래스 계산
+  // -----------------------------------------------------------------
+  function getChipClass(seconds) {
+    if (seconds <= 60) return "red";
+    if (seconds <= 120) return "yellow";
+    return "green";
+  }
+
+  function formatArrivalLabel(seconds, fallbackMsg) {
+    if (Number.isFinite(seconds)) {
+      if (seconds <= 0) return "전역 도착";
+      const min = Math.floor(seconds / 60);
+      const sec = seconds % 60;
+      if (min > 0) return `${min}분 ${sec}초 후`;
+      return `${sec}초 후`;
+    }
+    return fallbackMsg || "정보 없음";
+  }
+
+  // -----------------------------------------------------------------
+  // 테이블 렌더링
+  // -----------------------------------------------------------------
+  function renderRows(rows) {
+    if (!rows || rows.length === 0) {
+      resultBody.innerHTML = `<tr><td colspan="4" class="empty-state">도착 예정 정보가 없습니다.</td></tr>`;
+      return;
+    }
+
+    resultBody.innerHTML = rows.map((row) => {
+      const seconds = parseInt(row.barvlDt, 10);
+      const chipClass = getChipClass(Number.isFinite(seconds) ? seconds : 9999);
+      const arrivalLabel = formatArrivalLabel(seconds, row.arvlMsg2);
+
+      return `
+        <tr>
+          <td><span class="line-badge">${escapeHtml(row.lineName || row.subwayId || "-")}</span></td>
+          <td>${escapeHtml(row.trainLineNm || "-")}</td>
+          <td>${escapeHtml(row.arvlMsg3 || row.arvlMsg2 || "-")}</td>
+          <td><span class="chip ${chipClass}">${escapeHtml(arrivalLabel)}</span></td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // -----------------------------------------------------------------
+  // API 호출
+  // -----------------------------------------------------------------
+  async function fetchArrivalInfo(stationName) {
+    const url = `${BASE_URL}/${API_KEY}/json/realtimeStationArrival/0/20/${encodeURIComponent(stationName)}`;
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    // 서울시 API 오류 응답 형식 체크 (RESULT.CODE)
+    if (data && data.RESULT && data.RESULT.CODE && data.RESULT.CODE !== "INFO-000") {
+      throw new Error(data.RESULT.MESSAGE || "API 오류");
+    }
+
+    const list = data && data.realtimeArrivalList;
+    if (!Array.isArray(list)) {
+      throw new Error("응답 형식이 올바르지 않습니다.");
+    }
+
+    return list;
+  }
+
+  async function loadStation(stationName) {
+    if (!stationName) return;
+    currentStation = stationName;
+
+    setStatus("조회 중...", false);
+    searchBtn.disabled = true;
+
+    try {
+      const list = await fetchArrivalInfo(stationName);
+      fallbackBanner.classList.remove("show");
+      renderRows(list);
+      setStatus("정상 연결됨", false);
+      setUpdatedNow();
+    } catch (err) {
+      console.error("[subway] fetch error:", err);
+      fallbackBanner.classList.add("show");
+      renderRows(getSampleData(stationName));
+      setStatus("API 오류 - 샘플 데이터 표시", true);
+      setUpdatedNow();
+    } finally {
+      searchBtn.disabled = false;
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // 30초 자동 갱신
+  // -----------------------------------------------------------------
+  function startAutoRefresh() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(() => {
+      if (currentStation) {
+        loadStation(currentStation);
+      }
+    }, REFRESH_INTERVAL_MS);
+  }
+
+  function stopAutoRefresh() {
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // 이벤트 바인딩
+  // -----------------------------------------------------------------
+  searchBtn.addEventListener("click", () => {
+    const stationName = stationInput.value.trim();
+    if (!stationName) {
+      stationInput.focus();
+      return;
+    }
+    loadStation(stationName);
+  });
+
+  stationInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      searchBtn.click();
+    }
+  });
+
+
+  // -----------------------------------------------------------------
+  // STEP 03 — Leaflet 서울 지하철 1~9호선 노선도
+  // 좌표는 대시보드 시각화를 위한 주요 역 중심의 노선 좌표다.
+  // -----------------------------------------------------------------
+  const LINE_COLORS = {
+    "1호선":"#0052A4", "2호선":"#00A84D", "3호선":"#EF7C1C",
+    "4호선":"#00A5DE", "5호선":"#996CAC", "6호선":"#CD7C2F",
+    "7호선":"#747F00", "8호선":"#E6186C", "9호선":"#BDB092"
+  };
+
+  const LINES = {
+    "1호선":[["서울역",37.5547,126.9707],["시청",37.5657,126.9771],["종각",37.5702,126.9831],["종로3가",37.5704,126.9921],["종로5가",37.5709,127.0019],["동대문",37.5714,127.0097],["신설동",37.5753,127.0251],["청량리",37.5802,127.0468]],
+    "2호선":[["시청",37.5657,126.9771],["을지로입구",37.5660,126.9826],["을지로3가",37.5663,126.9910],["동대문역사문화공원",37.5651,127.0079],["왕십리",37.5615,127.0378],["성수",37.5446,127.0559],["건대입구",37.5404,127.0692],["잠실",37.5133,127.1002],["삼성",37.5088,127.0632],["강남",37.4979,127.0276],["교대",37.4934,127.0141],["사당",37.4765,126.9816],["신림",37.4842,126.9297],["구로디지털단지",37.4853,126.9014],["신도림",37.5088,126.8913],["홍대입구",37.5572,126.9236],["이대",37.5567,126.9460],["충정로",37.5597,126.9644],["시청",37.5657,126.9771]],
+    "3호선":[["구파발",37.6366,126.9188],["연신내",37.6190,126.9210],["불광",37.6105,126.9298],["경복궁",37.5758,126.9736],["종로3가",37.5716,126.9919],["충무로",37.5614,126.9941],["약수",37.5543,127.0107],["옥수",37.5417,127.0174],["압구정",37.5271,127.0285],["신사",37.5163,127.0203],["고속터미널",37.5048,127.0049],["교대",37.4930,127.0138],["양재",37.4845,127.0341],["수서",37.4874,127.1019]],
+    "4호선":[["노원",37.6563,127.0633],["창동",37.6532,127.0477],["미아",37.6267,127.0259],["성신여대입구",37.5926,127.0165],["동대문",37.5714,127.0097],["충무로",37.5614,126.9941],["명동",37.5609,126.9863],["서울역",37.5532,126.9726],["삼각지",37.5348,126.9731],["이촌",37.5224,126.9733],["동작",37.5029,126.9803],["사당",37.4765,126.9816]],
+    "5호선":[["김포공항",37.5624,126.8011],["마곡",37.5602,126.8255],["여의도",37.5216,126.9242],["공덕",37.5440,126.9516],["충정로",37.5597,126.9644],["광화문",37.5715,126.9764],["종로3가",37.5725,126.9902],["동대문역사문화공원",37.5647,127.0054],["왕십리",37.5618,127.0370],["군자",37.5571,127.0795],["천호",37.5384,127.1236]],
+    "6호선":[["응암",37.5986,126.9156],["불광",37.6105,126.9298],["디지털미디어시티",37.5760,126.9001],["합정",37.5495,126.9137],["공덕",37.5436,126.9518],["삼각지",37.5355,126.9735],["약수",37.5543,127.0107],["신당",37.5662,127.0175],["동묘앞",37.5726,127.0164],["안암",37.5863,127.0290],["석계",37.6148,127.0655]],
+    "7호선":[["도봉산",37.6893,127.0461],["노원",37.6545,127.0606],["태릉입구",37.6173,127.0747],["군자",37.5571,127.0795],["건대입구",37.5407,127.0710],["청담",37.5194,127.0537],["강남구청",37.5172,127.0413],["고속터미널",37.5048,127.0050],["이수",37.4853,126.9817],["대림",37.4930,126.8966],["가산디지털단지",37.4804,126.8827]],
+    "8호선":[["암사",37.5501,127.1275],["천호",37.5381,127.1238],["강동구청",37.5303,127.1205],["잠실",37.5146,127.1043],["석촌",37.5054,127.1069],["가락시장",37.4929,127.1182],["복정",37.4707,127.1267],["모란",37.4321,127.1291]],
+    "9호선":[["김포공항",37.5619,126.8022],["마곡나루",37.5668,126.8273],["염창",37.5469,126.8749],["당산",37.5334,126.9028],["여의도",37.5216,126.9242],["노량진",37.5135,126.9428],["동작",37.5029,126.9785],["고속터미널",37.5059,127.0044],["신논현",37.5046,127.0251],["선정릉",37.5109,127.0436],["봉은사",37.5142,127.0602],["종합운동장",37.5112,127.0736]]
+  };
+
+  const subwayMap = L.map("subwayMap").setView([37.545, 127.00], 11);
+  L.maplibreGL({
+    style: "https://tiles.openfreemap.org/styles/liberty"
+  }).addTo(subwayMap);
+
+  const lineLayers = {};
+  const stationLookup = {};
+  const ALL_STATIONS = [];
+
+  Object.entries(LINES).forEach(([lineName, stations]) => {
+    const group = L.layerGroup().addTo(subwayMap);
+    const color = LINE_COLORS[lineName];
+    L.polyline(stations.map(s => [s[1],s[2]]), {color, weight:5, opacity:.9}).addTo(group);
+    stations.forEach(([name,lat,lng]) => {
+      const key = `${name}|${lineName}`;
+      ALL_STATIONS.push({name,lineName,lat,lng});
+      if (!stationLookup[name]) stationLookup[name] = {lat,lng};
+      const icon = L.divIcon({className:"station-label", html:`<span>${escapeHtml(name)}</span>`, iconSize:null});
+      const marker = L.marker([lat,lng],{icon}).addTo(group);
+      marker.bindPopup(`<div class="popup-station-name">${escapeHtml(name)}</div><div class="popup-line-name">${escapeHtml(lineName)}</div><button type="button" class="popup-arrival" data-station="${escapeHtml(name)}">◉ 실시간 도착 조회</button>`);
+    });
+    lineLayers[lineName] = group;
+  });
+
+  const toggles = document.getElementById("lineToggles");
+  Object.keys(LINES).forEach(lineName => {
+    const btn=document.createElement("button"); btn.type="button"; btn.className="line-toggle"; btn.textContent=lineName;
+    btn.style.borderColor=LINE_COLORS[lineName];
+    btn.addEventListener("click",()=>{ const layer=lineLayers[lineName]; if(subwayMap.hasLayer(layer)){subwayMap.removeLayer(layer);btn.classList.add("off");}else{layer.addTo(subwayMap);btn.classList.remove("off");} });
+    toggles.appendChild(btn);
+  });
+
+  subwayMap.on("popupopen", e => {
+    const b=e.popup.getElement()?.querySelector(".popup-arrival");
+    if(b) b.onclick=()=>{ const name=b.dataset.station; stationInput.value=name; loadStation(name); subwayMap.closePopup(); };
+  });
+
+  const suggestions=document.getElementById("stationSuggestions");
+  function showSuggestions(q){
+    const query=q.trim().toLowerCase();
+    if(!query){suggestions.style.display="none";return;}
+    const seen=new Set();
+    const matches=ALL_STATIONS.filter(s=>s.name.toLowerCase().includes(query)&&!seen.has(s.name)&&seen.add(s.name)).slice(0,10);
+    suggestions.innerHTML=matches.map(s=>`<div class="suggestion" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)}</div>`).join("");
+    suggestions.style.display=matches.length?"block":"none";
+  }
+  stationInput.addEventListener("input",()=>showSuggestions(stationInput.value));
+  suggestions.addEventListener("click",e=>{
+    const item=e.target.closest(".suggestion"); if(!item)return; const name=item.dataset.name; stationInput.value=name; suggestions.style.display="none";
+    const s=stationLookup[name]; if(s) subwayMap.flyTo([s.lat,s.lng],15,{duration:.7}); loadStation(name);
+  });
+  document.addEventListener("click",e=>{if(!e.target.closest(".autocomplete-wrap")) suggestions.style.display="none";});
+
+  const originalLoadStation = loadStation;
+  loadStation = async function(stationName) {
+    const s=stationLookup[stationName]; if(s) subwayMap.flyTo([s.lat,s.lng],15,{duration:.7});
+    return originalLoadStation(stationName);
+  };
+
+  // -----------------------------------------------------------------
+  // 초기 실행
+  // -----------------------------------------------------------------
+  loadStation(stationInput.value.trim());
+  startAutoRefresh();
+})();
+</script>
+</body>
+</html>
